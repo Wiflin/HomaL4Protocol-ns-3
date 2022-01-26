@@ -47,4 +47,6 @@ version.cache
 
 /outputs/
 /logs/
+.vscode
+mix
 
