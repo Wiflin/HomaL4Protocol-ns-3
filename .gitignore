@@ -44,3 +44,7 @@ build/
 /.project
 
 version.cache
+
+/outputs/
+/logs/
+
