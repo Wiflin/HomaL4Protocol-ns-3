@@ -25,6 +25,7 @@
 
 #include "ns3/application.h"
 #include "ns3/random-variable-stream.h"
+// #include "ns3/random-variable-stream.h"
 #include "ns3/address.h"
 #include "ns3/inet-socket-address.h"
 #include "ns3/socket.h"
@@ -115,6 +116,7 @@ private:
   
   Ptr<ExponentialRandomVariable>  m_interMsgTime; //!< rng for rate of message generation in sec/msg
   Ptr<UniformRandomVariable>      m_msgSizePkts;  //!< rng to choose msg size from the set workload
+  // Ptr<NormalRandomVariable>      m_remoteClient; //!< rng to choose remote client to send msg to
   Ptr<UniformRandomVariable>      m_remoteClient; //!< rng to choose remote client to send msg to
   
   uint32_t          m_maxPayloadSize;//!< Maximum size of packet payloads

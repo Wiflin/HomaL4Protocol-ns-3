@@ -19,6 +19,7 @@
  */
 
 #include <algorithm>
+#include <numeric>
 
 #include "ns3/log.h"
 #include "ns3/assert.h"
@@ -37,6 +38,8 @@
 #include "homa-l4-protocol.h"
 #include "homa-socket-factory.h"
 #include "homa-socket.h"
+
+using namespace std;
 
 namespace ns3 {
 
@@ -86,6 +89,10 @@ HomaL4Protocol::GetTypeId (void)
                    UintegerValue (5),
                    MakeUintegerAccessor (&HomaL4Protocol::m_maxNumRtxPerMsg),
                    MakeUintegerChecker<uint16_t> ())
+    .AddAttribute ("Msg_tp_interval", "Calculate the message throughput interval",
+                   UintegerValue (2),
+                   MakeUintegerAccessor (&HomaL4Protocol::m_tp_interval),
+                   MakeUintegerChecker<uint64_t> ())
     .AddAttribute ("OptimizeMemory", 
                    "High performant mode (only packet sizes are stored to save from memory).",
                    BooleanValue (true),
@@ -116,6 +123,11 @@ HomaL4Protocol::GetTypeId (void)
                      "to the HomaL4Protocol layer.",
                      MakeTraceSourceAccessor (&HomaL4Protocol::m_ctrlRecvTrace),
                      "ns3::Packet::TracedCallback")
+    .AddTraceSource ("MsgComplete",
+                     "Trace Msg ACK"
+                     "to the HomaL4Protocol layer.",
+                     MakeTraceSourceAccessor (&HomaL4Protocol::m_MsgFctTrace),
+                     "ns3::Packet::TracedCallback")
   ;
   return tid;
 }
@@ -127,11 +139,13 @@ HomaL4Protocol::HomaL4Protocol ()
       
   m_sendScheduler = CreateObject<HomaSendScheduler> (this);
   m_recvScheduler = CreateObject<HomaRecvScheduler> (this); 
+  m_tp_event = Simulator::Schedule(Seconds(2)+MicroSeconds(2), &HomaL4Protocol::cal_throughput_event, this);
 }
 
 HomaL4Protocol::~HomaL4Protocol ()
 {
   NS_LOG_FUNCTION_NOARGS ();
+  Simulator::Cancel(m_tp_event);
 }
     
 void 
@@ -160,7 +174,7 @@ HomaL4Protocol::GetMtu (void) const
   return m_mtu;
 }
     
-uint16_t 
+uint32_t 
 HomaL4Protocol::GetBdp(void) const
 {
   return m_bdp;
@@ -184,7 +198,7 @@ HomaL4Protocol::GetOutboundRtxTimeout(void) const
   return m_outboundRtxTimeout;
 }
     
-uint16_t 
+uint32_t 
 HomaL4Protocol::GetMaxNumRtxPerMsg(void) const
 {
   return m_maxNumRtxPerMsg;
@@ -394,13 +408,16 @@ HomaL4Protocol::SendDown (Ptr<Packet> packet,
   {
     m_nextTimeTxQueWillBeEmpty = Simulator::Now() + timeToSerialize;
   }
-    
+  // std::cout << Simulator::Now().GetNanoSeconds() << " "
+  //           << saddr << ":" << homaHeader.GetSrcPort () 
+  //           << " m_nextTimeTxQueWillBeEmpty " <<m_nextTimeTxQueWillBeEmpty.GetNanoSeconds() 
+  //           << " timeToSerialize " << timeToSerialize.GetNanoSeconds() << std::endl;
   if (homaHeader.GetFlags () & HomaHeader::Flags_t::DATA)
   {
     uint32_t payloadSize = m_mtu - iph.GetSerializedSize () - homaHeader.GetSerializedSize ();
     uint32_t msgSizeBytes = homaHeader.GetMsgSize ();
-    uint16_t msgSizePkts = msgSizeBytes / payloadSize + (msgSizeBytes % payloadSize != 0);
-    uint16_t remainingPkts = msgSizePkts - homaHeader.GetGrantOffset () - (uint16_t)1 + m_bdp; 
+    uint32_t msgSizePkts = msgSizeBytes / payloadSize + (msgSizeBytes % payloadSize != 0); //t
+    uint32_t remainingPkts = msgSizePkts - homaHeader.GetGrantOffset () - (uint32_t)1 + m_bdp;  //t //这里为什么要加个bdp
     m_dataSendTrace(packet, saddr, daddr, homaHeader.GetSrcPort (), 
                     homaHeader.GetDstPort (), homaHeader.GetTxMsgId (), 
                     homaHeader.GetPktOffset (), remainingPkts);
@@ -409,7 +426,7 @@ HomaL4Protocol::SendDown (Ptr<Packet> packet,
   m_downTarget (packet, saddr, daddr, PROT_NUMBER, route);
 }
     
-Time HomaL4Protocol::GetTimeToDrainTxQueue ()
+Time HomaL4Protocol::GetTimeToDrainTxQueue ()  //!< Total amount of bytes serialized since the last time
 {
   NS_LOG_FUNCTION(this);
     
@@ -429,7 +446,7 @@ Time HomaL4Protocol::GetTimeToDrainTxQueue ()
  * and forward it to the appropriate scheduler (send or receive) to have
  * Homa Transport logic applied on it.
  */
-enum IpL4Protocol::RxStatus
+enum IpL4Protocol::RxStatus //收包
 HomaL4Protocol::Receive (Ptr<Packet> packet,
                         Ipv4Header const &header,
                         Ptr<Ipv4Interface> interface)
@@ -469,7 +486,24 @@ HomaL4Protocol::Receive (Ptr<Packet> packet,
            (rxFlag & HomaHeader::Flags_t::RESEND) ||
            (rxFlag & HomaHeader::Flags_t::ACK))
   {
-    m_sendScheduler->CtrlPktRecvdForOutboundMsg(header, homaHeader);
+    int ack = 0;
+    //m_sendScheduler->CtrlPktRecvdForOutboundMsg(header, homaHeader);
+    ack = m_sendScheduler->CtrlPktRecvdForOutboundMsg_t(header, homaHeader);
+    if ( ack )
+    {
+      uint16_t targetTxMsgId_t = homaHeader.GetTxMsgId();
+    
+      Ptr<HomaOutboundMsg> targetMsg = m_sendScheduler->m_outboundMsgs[targetTxMsgId_t];
+
+      Ptr<Packet> test = Create<Packet> ();
+      m_MsgFctTrace(test, targetMsg->GetSrcAddress(), targetMsg->GetDstAddress(), 
+                        targetMsg->GetSrcPort(), targetMsg->GetDstPort(), 
+                        targetMsg->GetStartTime(), targetMsg->GetMsgSizeBytes(), targetTxMsgId_t);
+
+      // printf("targetMsg->GetMsgSizeBytes() %u\n", targetMsg->GetMsgSizeBytes());
+
+      m_sendScheduler->ClearStateForMsg (targetTxMsgId_t);
+    }
   }
   else
   {
@@ -573,6 +607,29 @@ HomaL4Protocol::SetDownTarget6 (IpL4Protocol::DownTargetCallback6 callback)
   m_downTarget6 = callback;
 }
 
+void 
+HomaL4Protocol::cal_throughput_event()
+{
+  uint64_t now = Simulator::Now().GetNanoSeconds();
+  m_recvScheduler->cal_tp(now, m_last_time);
+  m_last_time = now;
+  // m_tp_interval += m_tp_interval;
+  // int next_event_time_s = int(Simulator::Now().GetSeconds());
+  // for (std::size_t i = 0; i < m_inboundMsgs.size(); ++i) 
+  // {
+  //   uint64_t tp = (m_inboundMsgs[i].m_now_received_msgsize - m_inboundMsgs[i].m_last_received_msgsize)*8.0/(now-last_time);
+  //   m_last_received_msgsize = m_now_received_msgsize;
+  //   std::cout << m_inboundMsgs[i]->GetSrcAddress() << ":" << m_inboundMsgs[i]->GetSrcPort() << " " 
+  //             << m_inboundMsgs[i]->GetDstAddress() << ":" << m_inboundMsgs[i]->GetDstPort() << " " 
+  //             << m_inboundMsgs[i]->GetTxMsgId() << " " << tp
+  //             << std::endl;
+  // }
+  // std::cout << next_event_time_s << ":" << m_tp_interval << " " 
+  //           << (Seconds(next_event_time_s)+MicroSeconds(m_tp_interval)).GetNanoSeconds() << " test "<< std::endl;
+  m_tp_event = Simulator::Schedule(MicroSeconds(m_tp_interval), &HomaL4Protocol::cal_throughput_event, this);
+}
+
+
 IpL4Protocol::DownTargetCallback
 HomaL4Protocol::GetDownTarget (void) const
 {
@@ -610,7 +667,9 @@ HomaOutboundMsg::HomaOutboundMsg (Ptr<Packet> message,
       m_isExpired(false)
 {
   NS_LOG_FUNCTION (this);
-      
+  
+  m_starttime = Simulator::Now();
+
   m_saddr = saddr;
   m_daddr = daddr;
   m_sport = sport;
@@ -627,7 +686,7 @@ HomaOutboundMsg::HomaOutboundMsg (Ptr<Packet> message,
     
   // Packetize the message into MTU sized packets and store the corresponding state
   uint32_t unpacketizedBytes = m_msgSizeBytes;
-  uint16_t numPkts = 0;
+  uint32_t numPkts = 0;
   uint32_t nextPktSize;
   Ptr<Packet> nextPkt;
   while (unpacketizedBytes > 0)
@@ -648,10 +707,26 @@ HomaOutboundMsg::HomaOutboundMsg (Ptr<Packet> message,
 
     unpacketizedBytes -= nextPktSize;
     numPkts++;
+    // if ( m_sport== 10049 )
+    //   NS_LOG_UNCOND(Simulator::Now().GetNanoSeconds() << " "
+    //                 << m_saddr << ":" << m_sport << " "
+    //                 << m_daddr << ":" << m_dport << " "
+    //                 << " nextPktSize " << nextPktSize 
+    //                 << " numPkts " <<  numPkts << " "
+    //                 << " unpacketizedBytes " << unpacketizedBytes << " "
+    //                 << " m_maxPayloadSize " << m_maxPayloadSize << " "
+    //     );
   } 
+  // NS_LOG_UNCOND(Simulator::Now().GetNanoSeconds() << " "
+  //               << m_saddr << ":" << m_sport << " "
+  //               << m_daddr << ":" << m_dport << " "
+  //               << " m_msgSizeBytes " << m_msgSizeBytes
+  //               << " numPkts " << numPkts 
+  //               << " m_msgSizeBytes / m_maxPayloadSize + (m_msgSizeBytes % m_maxPayloadSize != 0) " << m_msgSizeBytes / m_maxPayloadSize + (m_msgSizeBytes % m_maxPayloadSize != 0) 
+  //               );
   NS_ASSERT(numPkts == m_msgSizeBytes / m_maxPayloadSize + (m_msgSizeBytes % m_maxPayloadSize != 0));
   
-  m_maxGrantedIdx = std::min((uint16_t)(m_homa->GetBdp () -1), numPkts);
+  m_maxGrantedIdx = std::min((uint32_t)(m_homa->GetBdp () -1), numPkts);
           
   m_rtxEvent = Simulator::Schedule (m_homa->GetOutboundRtxTimeout (), 
                                     &HomaOutboundMsg::ExpireRtxTimeout, 
@@ -682,7 +757,7 @@ uint32_t HomaOutboundMsg::GetMsgSizeBytes()
 {
   return m_msgSizeBytes;
 }
-uint16_t HomaOutboundMsg::GetMsgSizePkts()
+uint32_t HomaOutboundMsg::GetMsgSizePkts()
 {
   return m_msgSizeBytes / m_maxPayloadSize + (m_msgSizeBytes % m_maxPayloadSize != 0);
 }
@@ -707,7 +782,7 @@ uint16_t HomaOutboundMsg::GetDstPort ()
   return m_dport;
 }
     
-uint16_t HomaOutboundMsg::GetMaxGrantedIdx ()
+uint32_t HomaOutboundMsg::GetMaxGrantedIdx ()
 {
   return m_maxGrantedIdx;
 }
@@ -715,6 +790,11 @@ uint16_t HomaOutboundMsg::GetMaxGrantedIdx ()
 bool HomaOutboundMsg::IsExpired ()
 {
   return m_isExpired;
+}
+
+Time HomaOutboundMsg::GetStartTime()
+{
+  return m_starttime;
 }
     
 uint8_t HomaOutboundMsg::GetPrio (uint16_t pktOffset)
@@ -737,19 +817,20 @@ EventId HomaOutboundMsg::GetRtxEvent ()
   return m_rtxEvent;
 }
     
-bool HomaOutboundMsg::GetNextPktOffset (uint16_t &pktOffset)
+bool HomaOutboundMsg::GetNextPktOffset (uint32_t &pktOffset)
 {
   NS_LOG_FUNCTION (this);
     
   if (!m_pktTxQ.empty ())
   {
-    uint16_t nextPktOffset = m_pktTxQ.top();
+    uint32_t nextPktOffset = m_pktTxQ.top();
     
     if (nextPktOffset <= m_maxGrantedIdx && nextPktOffset < this->GetMsgSizePkts ())
     {
       // The selected packet is not delivered and not on flight
       NS_LOG_LOGIC("HomaOutboundMsg (" << this 
                    << ") can send packet " << nextPktOffset << " next.");
+      // m_maxGrantedIdx   ->Highest Grant Offset received so far (default: BDP)
       pktOffset = nextPktOffset;
       return true;
     }
@@ -759,7 +840,7 @@ bool HomaOutboundMsg::GetNextPktOffset (uint16_t &pktOffset)
   return false;
 }
     
-Ptr<Packet> HomaOutboundMsg::RemoveNextPktFromTxQ (uint16_t pktOffset)
+Ptr<Packet> HomaOutboundMsg::RemoveNextPktFromTxQ (uint32_t pktOffset) //t
 {
   NS_LOG_FUNCTION (this << pktOffset);
     
@@ -794,7 +875,7 @@ void HomaOutboundMsg::HandleGrantOffset (HomaHeader const &homaHeader)
 {
   NS_LOG_FUNCTION (this << homaHeader);
     
-  uint16_t grantOffset = homaHeader.GetGrantOffset();
+  uint32_t grantOffset = homaHeader.GetGrantOffset();
   NS_ASSERT_MSG(grantOffset < this->GetMsgSizePkts (), 
                 "HomaOutboundMsg shouldn't be granted after it is already fully granted!");
   
@@ -844,13 +925,14 @@ void HomaOutboundMsg::HandleAck (HomaHeader const &homaHeader)
     
   NS_ASSERT(homaHeader.GetPktOffset () == this->GetMsgSizePkts ());
   m_remainingBytes = 0;
+
 }
     
 Ptr<Packet> HomaOutboundMsg::GenerateBusy (uint16_t targetTxMsgId)
 {
   NS_LOG_FUNCTION (this << targetTxMsgId);
     
-  uint16_t pktOffset;
+  uint32_t pktOffset; //t
   if (!m_pktTxQ.empty ())
     pktOffset = m_pktTxQ.top();
   else
@@ -887,13 +969,13 @@ void HomaOutboundMsg::ExpireRtxTimeout(uint16_t lastRtxGrntIdx)
     return;
   }
   
-  if (lastRtxGrntIdx < m_maxGrantedIdx)
+  if (lastRtxGrntIdx < m_maxGrantedIdx)  //把注释全关掉就是原有版本
   {
     m_rtxEvent = Simulator::Schedule (m_homa->GetOutboundRtxTimeout (), 
                                       &HomaOutboundMsg::ExpireRtxTimeout, 
                                       this, m_maxGrantedIdx);
   }
-  else
+  else //把注释全关掉就是原有版本
   {
     NS_LOG_WARN(Simulator::Now ().GetNanoSeconds () << 
                 " HomaOutboundMsg (" << this << ") has timed-out.");
@@ -902,14 +984,17 @@ void HomaOutboundMsg::ExpireRtxTimeout(uint16_t lastRtxGrntIdx)
 }
     
 /******************************************************************************/
-    
+NS_OBJECT_ENSURE_REGISTERED (HomaSendScheduler); // test
 const uint16_t HomaSendScheduler::MAX_N_MSG = 255;
-
 TypeId HomaSendScheduler::GetTypeId (void)
 {
   static TypeId tid = TypeId ("ns3::HomaSendScheduler")
     .SetParent<Object> ()
     .SetGroupName("Internet")
+    // .AddTraceSource ("MsgComplete",
+    //                  "Trace Msg ACK to the HomaL4Protocol layer.",
+    //                  MakeTraceSourceAccessor (&HomaSendScheduler::m_MsgFctTrace),
+    //                  "ns3::HomaSendScheduler::TracedCallback")
   ;
   return tid;
 }
@@ -951,7 +1036,7 @@ int HomaSendScheduler::ScheduleNewMsg (Ptr<HomaOutboundMsg> outMsg)
   if (m_txMsgIdFreeList.size() > 0)
   {
     // Assign a unique txMsgId which will persist while the message lasts
-    txMsgId = m_txMsgIdFreeList.front ();
+    txMsgId = m_txMsgIdFreeList.front (); //获取可用的MsgID
     NS_LOG_LOGIC("HomaSendScheduler allocating txMsgId: " << txMsgId);
     m_txMsgIdFreeList.pop_front ();
       
@@ -992,7 +1077,7 @@ bool HomaSendScheduler::GetNextMsgId (uint16_t &txMsgId)
   Ptr<HomaOutboundMsg> candidateMsg;
   std::list<uint16_t> expiredMsgIds;
   uint32_t minRemainingBytes = std::numeric_limits<uint32_t>::max();
-  uint16_t pktOffset;
+  uint32_t pktOffset; //t
   bool msgSelected = false;
   /*
    * Iterate over all pending outbound messages and select the one 
@@ -1010,7 +1095,7 @@ bool HomaSendScheduler::GetNextMsgId (uint16_t &txMsgId)
       if (curRemainingBytes < minRemainingBytes)
       {
         // Accept current msg if it has a granted but not transmitted packet
-        if (currentMsg->GetNextPktOffset(pktOffset))
+        if (currentMsg->GetNextPktOffset(pktOffset)) //t
         {
           candidateMsg = currentMsg;
           txMsgId = it.first;
@@ -1043,7 +1128,7 @@ bool HomaSendScheduler::GetNextPktOfMsg (uint16_t txMsgId, Ptr<Packet> &p)
 {
   NS_LOG_FUNCTION (this << txMsgId);
   
-  uint16_t pktOffset;
+  uint32_t pktOffset; //t
   Ptr<HomaOutboundMsg> candidateMsg = m_outboundMsgs[txMsgId];
     
   if (candidateMsg->GetNextPktOffset(pktOffset))
@@ -1066,6 +1151,10 @@ bool HomaSendScheduler::GetNextPktOfMsg (uint16_t txMsgId, Ptr<Packet> &p)
     //       priority queueing in the network.
     SocketIpTosTag ipTosTag;
     ipTosTag.SetTos (candidateMsg->GetPrio (pktOffset)); 
+
+    // NS_LOG_UNCOND (" candidateMsg->GetSrcPort () " << candidateMsg->GetSrcPort ()
+    //               << " candidateMsg->GetPrio (pktOffset) " << candidateMsg->GetPrio (pktOffset) );
+
     // This packet may already have a SocketIpTosTag (see HomaSocket)
     p->ReplacePacketTag (ipTosTag);
       
@@ -1099,7 +1188,7 @@ bool HomaSendScheduler::GetNextPktOfMsg (uint16_t txMsgId, Ptr<Packet> &p)
  * priority packet just before sending it.
  */
 void
-HomaSendScheduler::TxDataPacket ()
+HomaSendScheduler::TxDataPacket () //发包主函数
 {
   NS_LOG_FUNCTION (this);
     
@@ -1203,6 +1292,7 @@ void HomaSendScheduler::CtrlPktRecvdForOutboundMsg(Ipv4Header const &ipv4Header,
     NS_LOG_LOGIC("The HomaOutboundMsg (" << targetMsg << ") is fully delivered!");
     
     targetMsg->HandleAck (homaHeader); // Asserts some sanity checks.
+    
     this->ClearStateForMsg (targetTxMsgId);
   }
   else
@@ -1223,6 +1313,95 @@ void HomaSendScheduler::CtrlPktRecvdForOutboundMsg(Ipv4Header const &ipv4Header,
                                      &HomaSendScheduler::TxDataPacket, this);
 }
     
+int HomaSendScheduler::CtrlPktRecvdForOutboundMsg_t(Ipv4Header const &ipv4Header, 
+                                                     HomaHeader const &homaHeader)
+{
+  NS_LOG_FUNCTION (this << ipv4Header << homaHeader);
+    
+  int ack = 0;
+  uint16_t targetTxMsgId = homaHeader.GetTxMsgId();
+  if(m_outboundMsgs.find(targetTxMsgId) == m_outboundMsgs.end())
+  {
+    NS_LOG_WARN(Simulator::Now ().GetNanoSeconds () <<
+                " HomaSendScheduler (" << this <<
+                ") received a " << homaHeader.FlagsToString(homaHeader.GetFlags()) << 
+                " packet for an unknown txMsgId (" << 
+                targetTxMsgId << ").");
+    return 0;
+  }
+    
+  if (m_outboundMsgs[targetTxMsgId]->IsExpired ())
+  {
+    NS_LOG_WARN(Simulator::Now ().GetNanoSeconds () <<
+                " HomaSendScheduler (" << this <<
+                ") received a " << homaHeader.FlagsToString(homaHeader.GetFlags()) << 
+                " packet for an expired txMsgId (" << 
+                targetTxMsgId << ").");
+    this->ClearStateForMsg (targetTxMsgId);
+    return 0;
+  }
+    
+  Ptr<HomaOutboundMsg> targetMsg = m_outboundMsgs[targetTxMsgId];
+  // Verify that the TxMsgId indeed matches the 4 tuple
+  NS_ASSERT( (targetMsg->GetSrcAddress() == ipv4Header.GetDestination ()) &&
+             (targetMsg->GetDstAddress() == ipv4Header.GetSource ()) && 
+             (targetMsg->GetSrcPort() == homaHeader.GetDstPort ()) &&
+             (targetMsg->GetDstPort() == homaHeader.GetSrcPort ()) );
+  
+  uint8_t ctrlFlag = homaHeader.GetFlags();
+  if (ctrlFlag & HomaHeader::Flags_t::GRANT)
+  {
+    targetMsg->HandleGrantOffset (homaHeader);
+  }
+  else if (ctrlFlag & HomaHeader::Flags_t::RESEND)
+  {
+    targetMsg->HandleGrantOffset (homaHeader);
+    targetMsg->HandleResend (homaHeader);
+      
+    uint16_t nextTxMsgID;
+    this->GetNextMsgId (nextTxMsgID);
+    if (nextTxMsgID != targetTxMsgId) 
+    {
+      // Incoming packet doesn't belong to the highest priority outboung message.
+      NS_LOG_LOGIC("HomaSendScheduler (" << this 
+                   << ") needs to send a BUSY packet for " << targetTxMsgId);
+      
+      m_homa->SendDown(targetMsg->GenerateBusy (nextTxMsgID), 
+                       targetMsg->GetSrcAddress (), 
+                       targetMsg->GetDstAddress (), 
+                       targetMsg->GetRoute ());
+    }
+  }
+  else if (ctrlFlag & HomaHeader::Flags_t::ACK)
+  {
+    NS_LOG_LOGIC("The HomaOutboundMsg (" << targetMsg << ") is fully delivered!");
+    
+    targetMsg->HandleAck (homaHeader); // Asserts some sanity checks.
+    ack = 1;
+    // this->ClearStateForMsg (targetTxMsgId);
+  }
+  else
+  {
+    NS_LOG_ERROR("ERROR: HomaSendScheduler (" << this 
+                 << ") has received an unexpected control packet ("
+                 << homaHeader.FlagsToString(ctrlFlag) << ")");
+      
+    return 0;
+  }
+    
+  /* 
+   * Since control packets may allow new packets to be sent, we should try 
+   * to transmit those packets.
+   */
+  if(m_txEvent.IsExpired()) 
+    m_txEvent = Simulator::Schedule (m_homa->GetTimeToDrainTxQueue(), 
+                                     &HomaSendScheduler::TxDataPacket, this);
+  if ( ack )
+    return 1;
+  else
+    return 0;
+}
+
 void HomaSendScheduler::ClearStateForMsg (uint16_t txMsgId)
 {
   NS_LOG_FUNCTION(this << txMsgId);
@@ -1231,7 +1410,7 @@ void HomaSendScheduler::ClearStateForMsg (uint16_t txMsgId)
   m_outboundMsgs.erase(m_outboundMsgs.find(txMsgId));
   m_txMsgIdFreeList.push_back(txMsgId);
 }
-    
+
 /******************************************************************************/
 
 TypeId HomaInboundMsg::GetTypeId (void)
@@ -1249,7 +1428,7 @@ TypeId HomaInboundMsg::GetTypeId (void)
 HomaInboundMsg::HomaInboundMsg (Ptr<Packet> p,
                                 Ipv4Header const &ipv4Header, HomaHeader const &homaHeader, 
                                 Ptr<Ipv4Interface> iface, uint32_t mtuBytes, 
-                                uint16_t rttPackets, bool memIsOptimized)
+                                uint32_t rttPackets, bool memIsOptimized) //t
     : m_prio(0),
       m_numRtxWithoutProgress (0)
 {
@@ -1280,14 +1459,14 @@ HomaInboundMsg::HomaInboundMsg (Ptr<Packet> p,
     m_receivedPackets.push_back(false);
   } 
           
-  uint16_t pktOffset = homaHeader.GetPktOffset ();
+  uint32_t pktOffset = homaHeader.GetPktOffset ();
   if (memIsOptimized)
     m_pktSizes[pktOffset] = p->GetSize ();
   else
     m_packets[pktOffset] = p;
   m_receivedPackets[pktOffset] = true;
           
-  m_maxGrantedIdx = std::min((uint16_t)(rttPackets-1), m_msgSizePkts); // Unscheduled pkts are already granted
+  m_maxGrantedIdx = std::min((uint32_t)(rttPackets-1), m_msgSizePkts); // Unscheduled pkts are already granted
   m_maxGrantableIdx = m_maxGrantedIdx + 1; // 1 Data pkt is already received
   m_lastRtxGrntIdx = m_maxGrantableIdx;
 }
@@ -1351,11 +1530,11 @@ EventId HomaInboundMsg::GetRtxEvent ()
   return m_rtxEvent;
 }
 
-uint16_t HomaInboundMsg::GetMaxGrantableIdx ()
+uint32_t HomaInboundMsg::GetMaxGrantableIdx () //t
 {
   return m_maxGrantableIdx;
 }
-uint16_t HomaInboundMsg::GetMaxGrantedIdx ()
+uint32_t HomaInboundMsg::GetMaxGrantedIdx () //t
 {
   return m_maxGrantedIdx;
 }
@@ -1364,7 +1543,7 @@ void HomaInboundMsg::SetLastRtxGrntIdx (uint16_t lastRtxGrntIdx)
 {
   m_lastRtxGrntIdx = lastRtxGrntIdx;
 }
-uint16_t HomaInboundMsg::GetLastRtxGrntIdx ()
+uint32_t HomaInboundMsg::GetLastRtxGrntIdx () //t
 {
   return m_lastRtxGrntIdx;
 }
@@ -1386,7 +1565,7 @@ bool HomaInboundMsg::IsFullyReceived ()
                       std::logical_not<bool>());
 }
     
-uint16_t HomaInboundMsg::GetNumRtxWithoutProgress ()
+uint32_t HomaInboundMsg::GetNumRtxWithoutProgress () //t
 {
   return m_numRtxWithoutProgress;
 }
@@ -1402,18 +1581,19 @@ void HomaInboundMsg::ResetNumRtxWithoutProgress ()
 /*
  * This method updates the state for an inbound message upon receival of a data packet.
  */
-void HomaInboundMsg::ReceiveDataPacket (Ptr<Packet> p, uint16_t pktOffset)
+void HomaInboundMsg::ReceiveDataPacket (Ptr<Packet> p, uint32_t pktOffset) //t
 {
   NS_LOG_FUNCTION (this << p << pktOffset);
     
   if (!m_receivedPackets[pktOffset])
   {
     if (m_pktSizes.size())
-      m_pktSizes[pktOffset] = p->GetSize ();
+      m_pktSizes[pktOffset] = p->GetSize (); //偏移对应的偏移大小
     else
       m_packets[pktOffset] = p;
     m_receivedPackets[pktOffset] = true;
-      
+    
+    m_now_received_msgsize += p->GetSize ();
     m_remainingBytes -= p->GetSize ();
     /*
      * Since a packet has arrived, we can allow a new packet to be on flight
@@ -1472,8 +1652,10 @@ Ptr<Packet> HomaInboundMsg::GenerateGrantOrAck(uint8_t grantedPrio,
                 "GenerateGrantOrAck() can only be called to generate GRANT or ACK packets!");
     
   m_prio = grantedPrio; // Updated with the most recent granted priority value
-    
-  uint16_t ackNo = m_msgSizePkts;
+  
+  // NS_LOG_UNCOND ( " m_prio " << m_prio);
+
+  uint32_t ackNo = m_msgSizePkts; //t
   for (std::size_t i = 0; i < m_msgSizePkts; i++)
   {
     if (!m_receivedPackets[i])
@@ -1508,7 +1690,7 @@ Ptr<Packet> HomaInboundMsg::GenerateGrantOrAck(uint8_t grantedPrio,
   return p;
 }
     
-std::list<Ptr<Packet>> HomaInboundMsg::GenerateResends (uint16_t maxRsndPktOffset)
+std::list<Ptr<Packet>> HomaInboundMsg::GenerateResends (uint32_t maxRsndPktOffset) //t
 {
   NS_LOG_FUNCTION (this << maxRsndPktOffset);
     
@@ -1577,6 +1759,24 @@ HomaRecvScheduler::~HomaRecvScheduler ()
                  numIncmpltMsg << " active inbound messages!");
   }
 }
+
+void HomaRecvScheduler::cal_tp(uint64_t now, uint64_t last_time)
+{
+  // std::cout << Simulator::Now().GetNanoSeconds() << " "
+  //           << m_inboundMsgs.size() << std::endl;
+  for (std::size_t i = 0; i < m_inboundMsgs.size(); ++i) 
+  {
+    uint64_t tp = (m_inboundMsgs[i]->m_now_received_msgsize - m_inboundMsgs[i]->m_last_received_msgsize)*8.0/(now-last_time);
+    m_inboundMsgs[i]->m_last_received_msgsize =m_inboundMsgs[i]->m_now_received_msgsize;
+
+    std::cout << "flow_tp "
+              << Simulator::Now().GetNanoSeconds() << " "
+              << m_inboundMsgs[i]->GetSrcAddress() << ":" << m_inboundMsgs[i]->GetSrcPort() << " " 
+              << m_inboundMsgs[i]->GetDstAddress() << ":" << m_inboundMsgs[i]->GetDstPort() << " " 
+              << m_inboundMsgs[i]->GetTxMsgId() << " " << tp
+              << std::endl;
+  }
+}
     
 void HomaRecvScheduler::ReceivePacket (Ptr<Packet> packet, 
                                        Ipv4Header const &ipv4Header,
@@ -1598,7 +1798,7 @@ void HomaRecvScheduler::ReceivePacket (Ptr<Packet> packet,
     // TODO: Is there anything else to do with a BUSY packet?
   }
     
-  this->SendAppropriateGrants();
+  this->SendAppropriateGrants(); //发grant包
 }
     
 void HomaRecvScheduler::ReceiveDataPacket (Ptr<Packet> packet, 
@@ -1612,11 +1812,11 @@ void HomaRecvScheduler::ReceiveDataPacket (Ptr<Packet> packet,
   Ptr<HomaInboundMsg> inboundMsg;
     
   int msgIdx = -1;
-  if (this->GetInboundMsg(ipv4Header, homaHeader, msgIdx))
+  if (this->GetInboundMsg(ipv4Header, homaHeader, msgIdx)) 
   {
     NS_ASSERT(msgIdx >= 0);
     inboundMsg = m_inboundMsgs[msgIdx];
-    inboundMsg->ReceiveDataPacket (cp, homaHeader.GetPktOffset());
+    inboundMsg->ReceiveDataPacket (cp, homaHeader.GetPktOffset()); //这一步主要是把在bound的Msg的相关信息记录下来，主要是偏移还有剩余大小
   }
   else
   {
@@ -1636,7 +1836,7 @@ void HomaRecvScheduler::ReceiveDataPacket (Ptr<Packet> packet,
   }
   else
   {
-    this->ScheduleMsgAtIdx(inboundMsg, msgIdx);
+    this->ScheduleMsgAtIdx(inboundMsg, msgIdx); //准备，把Msg按剩余大小插入
   }
 }
     
@@ -1756,26 +1956,41 @@ void HomaRecvScheduler::SendAppropriateGrants()
   NS_LOG_FUNCTION (this);
     
   std::unordered_set<uint32_t> grantedSenders; // Same sender can't be granted for multiple msgs at once
-  uint8_t grantingPrio = m_homa->GetNumUnschedPrioBands (); // Scheduled priorities start here
-  uint8_t overcommitDue = m_homa->GetOvercommitLevel ();
+  uint8_t grantingPrio = m_homa->GetNumUnschedPrioBands (); // Scheduled priorities start here 为未调度的数据包专用的优先级频带数 默认是2
+  uint8_t overcommitDue = m_homa->GetOvercommitLevel (); //同时要授予的最小消息数 每收到一个消息
     
   Ptr<HomaInboundMsg> currentMsg;
   for (std::size_t i = 0; i < m_inboundMsgs.size(); ++i) 
   {
     if (overcommitDue <= 0)
       break;
-    
+    // 网络中使用的优先级总数
     grantingPrio = std::min(grantingPrio, (uint8_t)(m_homa->GetNumTotalPrioBands()-1));
     
     currentMsg = m_inboundMsgs[i];
     Ipv4Address senderAddress = currentMsg->GetSrcAddress ();
-    if (!currentMsg->IsFullyGranted () &&
+    if (!currentMsg->IsFullyGranted () && //这个的意思是，这个Msg没有全部授权完,并且是可以被授权的
         grantedSenders.find(senderAddress.Get ()) == grantedSenders.end())
     {
       if (m_busySenders.find(senderAddress.Get ()) == m_busySenders.end())
       {
         if (currentMsg->IsGrantable ())
         {
+          // if ( currentMsg->GetDstAddress () == (Ipv4Address)"10.0.1.1" )
+          // {
+          //   std::cout << Simulator::Now ().GetNanoSeconds () 
+          //             <<   " currentMsg->GetSrcAddress () " << currentMsg->GetSrcAddress () 
+          //             << " GetRemainingBytes () " << currentMsg->GetRemainingBytes () 
+          //             << " currentMsg->GetDstAddress () " << currentMsg->GetDstAddress () 
+          //             << " currentMsg->IsGrantable () "  << currentMsg->IsGrantable ();
+          //   printf(" grantingPrio %u (uint8_t)(m_homa->GetNumTotalPrioBands()-1) %u  overcommitDue %u \n", 
+          //           grantingPrio, (uint8_t)(m_homa->GetNumTotalPrioBands()-1), overcommitDue);
+          //   NS_LOG_UNCOND(Simulator::Now ().GetNanoSeconds () 
+          //               << " currentMsg->GetDstAddress ()  "  <<  currentMsg->GetDstAddress ()
+          //               <<  " grantingPrio " << grantingPrio 
+          //               );
+          // }
+          
           m_homa->SendDown(currentMsg->GenerateGrantOrAck(grantingPrio, 
                                                           HomaHeader::Flags_t::GRANT),
                            currentMsg->GetDstAddress (),
@@ -1785,14 +2000,22 @@ void HomaRecvScheduler::SendAppropriateGrants()
         grantedSenders.insert(senderAddress.Get ());
         
       }
-      overcommitDue--;
+      // std::cout << Simulator::Now ().GetNanoSeconds () 
+      //           << " currentMsg->GetSrcAddress () " << currentMsg->GetSrcAddress ()
+      //           << " GetRemainingBytes () " << currentMsg->GetRemainingBytes () 
+      //           << " currentMsg->GetDstAddress () " << currentMsg->GetDstAddress ()
+      //           << " 我进来了 m_busySenders.find(senderAddress.Get ()) == m_busySenders.end() ";
+      // printf(" overcommitDue %u grantingPrio %u \n", 
+      //             overcommitDue, grantingPrio);
+      overcommitDue--; //因为我的数据包grant是有限的，如果前面的优先级高的流没有grant，我也依然要消耗一个overcommit
       grantingPrio++;
     }
   }
+  // printf("HomaRecvScheduler::SendAppropriateGrants \n");
 }
     
 void HomaRecvScheduler::ExpireRtxTimeout(Ptr<HomaInboundMsg> inboundMsg,
-                                         uint16_t maxRsndPktOffset)
+                                         uint32_t maxRsndPktOffset) //t
 {
   NS_LOG_FUNCTION (this << inboundMsg << maxRsndPktOffset);
     
@@ -1840,7 +2063,7 @@ void HomaRecvScheduler::ExpireRtxTimeout(Ptr<HomaInboundMsg> inboundMsg,
                                                    inboundMsg, inboundMsg->GetMaxGrantedIdx ()));
       
     // Update the LastRtxGrntIdx value of this message for the next timeout event
-    uint16_t maxGrantableIdx = inboundMsg->GetMaxGrantableIdx ();
+    uint32_t maxGrantableIdx = inboundMsg->GetMaxGrantableIdx (); //t
     if (inboundMsg->GetLastRtxGrntIdx () < maxGrantableIdx)
     {
       inboundMsg->ResetNumRtxWithoutProgress ();

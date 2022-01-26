@@ -96,7 +96,8 @@ HomaHeader::GetSerializedSize (void) const
   /* Note: The original Homa implementation has a slighly different packet 
    *       header format for every type of Homa packet.
    */
-  return 20; 
+  // return 20; //返回Bytes，位总和除8 //t
+  return 24;
   // TODO: If the above value is updated, update the default payload size
   //       in the declaration of Homa nanoPU implementation.
 }
@@ -140,10 +141,12 @@ HomaHeader::Serialize (Buffer::Iterator start) const
   i.WriteU8 (m_flags);
   i.WriteU8 (m_prio);
   i.WriteHtonU32 (m_msgSizeBytes);
-  i.WriteHtonU16 (m_pktOffset);
-  i.WriteHtonU16 (m_grantOffset);
+  // i.WriteHtonU16 (m_pktOffset); //t
+  // i.WriteHtonU16 (m_grantOffset); //t
   i.WriteHtonU16 (m_payloadSize);
   i.WriteHtonU16 (m_generation);
+  i.WriteHtonU32 (m_pktOffset); //t
+  i.WriteHtonU32 (m_grantOffset); //t
 }
 uint32_t
 HomaHeader::Deserialize (Buffer::Iterator start)
@@ -155,10 +158,13 @@ HomaHeader::Deserialize (Buffer::Iterator start)
   m_flags = i.ReadU8 ();
   m_prio = i.ReadU8 ();
   m_msgSizeBytes = i.ReadNtohU32 ();
-  m_pktOffset = i.ReadNtohU16 ();
-  m_grantOffset = i.ReadNtohU16 ();
+  // m_pktOffset = i.ReadNtohU16 (); //t
+  // m_grantOffset = i.ReadNtohU16 (); //t
   m_payloadSize = i.ReadNtohU16 ();
   m_generation = i.ReadNtohU16 ();
+
+  m_pktOffset = i.ReadNtohU32 (); //t
+  m_grantOffset = i.ReadNtohU32 (); //t
 
   return GetSerializedSize ();
 }
@@ -230,23 +236,23 @@ HomaHeader::GetMsgSize (void) const
 }
     
 void 
-HomaHeader::SetPktOffset (uint16_t pktOffset)
+HomaHeader::SetPktOffset (uint32_t pktOffset) //t
 {
   m_pktOffset = pktOffset;
 }
-uint16_t 
-HomaHeader::GetPktOffset (void) const
+uint32_t 
+HomaHeader::GetPktOffset (void) const //t
 {
   return m_pktOffset;
 }
     
 void 
-HomaHeader::SetGrantOffset (uint16_t grantOffset)
+HomaHeader::SetGrantOffset (uint32_t grantOffset) //t
 {
   m_grantOffset = grantOffset;
 }
-uint16_t 
-HomaHeader::GetGrantOffset (void) const
+uint32_t 
+HomaHeader::GetGrantOffset (void) const //t
 {
   return m_grantOffset;
 }

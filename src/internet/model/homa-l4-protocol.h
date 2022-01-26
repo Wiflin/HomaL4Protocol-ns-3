@@ -107,7 +107,8 @@ public:
    * \brief Get the approximated BDP value of the network in packets
    * \return The number of packets required for full utilization, ie. BDP.
    */
-  uint16_t GetBdp(void) const;
+  uint32_t GetBdp(void) const;
+  // uint32_t GetBdp_gai(void) const;
     
   /**
    * \brief Get the protocol number associated with Homa Transport.
@@ -131,7 +132,7 @@ public:
    * \brief Get the maximum number of rtx timeouts allowed per message
    * \return Maximum allowed rtx timeout count per message
    */
-  uint16_t GetMaxNumRtxPerMsg(void) const;
+  uint32_t GetMaxNumRtxPerMsg(void) const; //t
     
   /**
    * \brief Get total number of priority levels in the network
@@ -297,6 +298,8 @@ public:
   virtual IpL4Protocol::DownTargetCallback GetDownTarget (void) const;
   virtual IpL4Protocol::DownTargetCallback6 GetDownTarget6 (void) const;
 
+  void cal_throughput_event();
+
 protected:
   virtual void DoDispose (void);
   /*
@@ -307,20 +310,27 @@ protected:
   virtual void NotifyNewAggregate ();
     
 private:
+  //cal_tp
+  uint64_t m_last_time {0};
+  uint64_t m_tp_interval {2}; //us
+  EventId m_tp_event;
+
+
   Ptr<Node> m_node; //!< the node this stack is associated with
   Ipv4EndPointDemux *m_endPoints; //!< A list of IPv4 end points.
     
   std::vector<Ptr<HomaSocket> > m_sockets;      //!< list of sockets
+
   IpL4Protocol::DownTargetCallback m_downTarget;   //!< Callback to send packets over IPv4
   IpL4Protocol::DownTargetCallback6 m_downTarget6; //!< Callback to send packets over IPv6 (Not supported)
     
   bool m_memIsOptimized; //!< High performant mode (only packet sizes are stored to save from memory)
   
   uint32_t m_mtu; //!< The MTU of the bounded NetDevice
-  uint16_t m_bdp; //!< The number of packets required for full utilization, ie. BDP.
+  uint32_t m_bdp; //t !< The number of packets required for full utilization, ie. BDP.
     
   uint8_t m_numTotalPrioBands;   //!< Total number of priority levels used within the network
-  uint8_t m_numUnschedPrioBands; //!< Number of priority bands dedicated for unscheduled packets
+  uint8_t m_numUnschedPrioBands; //!< Number of priority bands dedicated for unscheduled packets 默认是2
   uint8_t m_overcommitLevel;     //!< Minimum number of messages to Grant at the same time
     
   DataRate m_linkRate;       //!< Data Rate of the corresponding net device for this prototocol
@@ -335,13 +345,16 @@ private:
     
   TracedCallback<Ptr<const Packet>, Ipv4Address, Ipv4Address, uint16_t, uint16_t, int> m_msgBeginTrace;
   TracedCallback<Ptr<const Packet>, Ipv4Address, Ipv4Address, uint16_t, uint16_t, int> m_msgFinishTrace;
-    
+  //                 Msg                saddr        daddr      sport    dport  starttime  msgsize,  msgid
+  TracedCallback<Ptr<const Packet>, Ipv4Address, Ipv4Address, uint16_t, uint16_t, Time, uint32_t, uint16_t> m_MsgFctTrace;
+
   TracedCallback<Ptr<const Packet>, Ipv4Address, Ipv4Address, uint16_t, uint16_t, int, 
                  uint16_t, uint8_t> m_dataRecvTrace; //!< Trace of {pkt, srcIp, dstIp, srcPort, dstPort, txMsgId, pktOffset, prio} for arriving DATA packets
   TracedCallback<Ptr<const Packet>, Ipv4Address, Ipv4Address, uint16_t, uint16_t, int, 
                  uint16_t, uint16_t> m_dataSendTrace; //!< Trace of {pkt, srcIp, dstIp, srcPort, dstPort, txMsgId, pktOffset, prio} for departing DATA packets
   TracedCallback<Ptr<const Packet>, Ipv4Address, Ipv4Address, uint16_t, uint16_t, uint8_t, 
                  uint16_t, uint8_t> m_ctrlRecvTrace; //!< Trace of {pkt, srcIp, dstIp, srcPort, dstPort, falg, grantOffset, prio} for arriving control packets
+
 };
     
 /******************************************************************************/
@@ -353,6 +366,7 @@ private:
 class HomaOutboundMsg : public Object
 {
 public:
+
   /**
    * \brief Get the type ID.
    * \return the object TypeId
@@ -390,7 +404,8 @@ public:
    * \brief Get the total number of packets for this message.
    * \return The number of packets
    */
-  uint16_t GetMsgSizePkts(void);
+  uint32_t GetMsgSizePkts(void); //t
+
   /**
    * \brief Get the sender's IP address for this message.
    * \return The IPv4 address of the sender
@@ -415,7 +430,7 @@ public:
    * \brief Get the highest granted packet offset for this message.
    * \return The highest granted packet offset
    */
-  uint16_t GetMaxGrantedIdx (void);
+  uint32_t GetMaxGrantedIdx (void); //t 
   
   /**
    * \return Whether this message has expired and to be cleared upon rtx timeouts
@@ -440,14 +455,14 @@ public:
    * \param pktOffset The index of the selected packet (determined inside this function)
    * \return Whether a packet was successfully selected for this message 
    */
-  bool GetNextPktOffset (uint16_t &pktOffset);
+  bool GetNextPktOffset (uint32_t &pktOffset); //t
   
   /**
    * \brief Remove the next packet from the TX queue of this message
    * \param pktOffset The offset of the packet which is to be set as sent
    * \return The packet that is to be sent next from this message
    */
-  Ptr<Packet> RemoveNextPktFromTxQ (uint16_t pktOffset);
+  Ptr<Packet> RemoveNextPktFromTxQ (uint32_t pktOffset); //t
   
   /**
    * \brief Update the state per the received Grant
@@ -479,8 +494,13 @@ public:
    * \param lastRtxGrntIdx The m_maxGrantedIdx value as of the time rtx timer was set
    */
   void ExpireRtxTimeout(uint16_t lastRtxGrntIdx);
+
   
+  Time GetStartTime(void);
 private:
+  //fct variable 
+  Time m_starttime;
+
   Ipv4Address m_saddr;       //!< Source IP address of this message
   Ipv4Address m_daddr;       //!< Destination IP address of this message
   uint16_t m_sport;          //!< Source port of this message
@@ -492,18 +512,20 @@ private:
   std::vector<Ptr<Packet>> m_packets;   //!< Packet buffer for the message
   std::vector<uint32_t> m_pktSizes;     //!< Optimized packet buffer that keeps only the packet sizes instead of contents
   
-  std::priority_queue<uint16_t, std::vector<uint16_t>, std::greater<uint16_t> > m_pktTxQ; //!< The sorted queue of pkt offsets for tx
+  std::priority_queue<uint32_t, std::vector<uint32_t>, std::greater<uint32_t> > m_pktTxQ; //t //相当于发包队列 //!< The sorted queue of pkt offsets for tx
   
   uint32_t m_msgSizeBytes;   //!< Number of bytes this message occupies
   uint32_t m_maxPayloadSize; //!< Number of bytes that can be stored in packet excluding headers
   uint32_t m_remainingBytes; //!< Remaining number of bytes that are not delivered yet
-  uint16_t m_maxGrantedIdx;  //!< Highest Grant Offset received so far (default: BDP)
+
+  uint32_t m_maxGrantedIdx;  //t !< Highest Grant Offset received so far (default: BDP) =std::min((uint16_t)(m_homa->GetBdp () -1), numPkts);
   
   uint8_t m_prio;            //!< The most recent priority of the message
   bool m_prioSetByReceiver;  //!< Whether the receiver has specified a priority yet
   
   EventId m_rtxEvent;        //!< The EventID for the retransmission timeout
   bool m_isExpired;          //!< Whether this message has expired and to be cleared upon rtx timeouts
+
 };
  
 /******************************************************************************/
@@ -565,20 +587,25 @@ public:
    */
   void CtrlPktRecvdForOutboundMsg (Ipv4Header const &ipv4Header, 
                                    HomaHeader const &homaHeader);
+  int CtrlPktRecvdForOutboundMsg_t (Ipv4Header const &ipv4Header, 
+                                   HomaHeader const &homaHeader);
   
   /**
    * \brief Delete the state for a msg and set the txMsgId as free again
    * \param txMsgId The TX msg ID of the message to be cleared
    */
   void ClearStateForMsg (uint16_t txMsgId);
-  
+  //                 Msg                saddr        daddr      sport    dport  starttime  
+  // TracedCallback<Ptr<const Packet>, Ipv4Address, Ipv4Address, uint16_t, uint16_t, Time, uint16_t> m_MsgFctTrace;
+  std::unordered_map<uint16_t, Ptr<HomaOutboundMsg>> m_outboundMsgs; //!< state to keep HomaOutboundMsg with the key as txMsgId
+
 private:
   Ptr<HomaL4Protocol> m_homa; //!< the protocol instance itself that sends/receives messages
   
   EventId m_txEvent;          //!< The EventID for the next scheduled transmission
   
   std::list<uint16_t> m_txMsgIdFreeList;  //!< List of free TX msg IDs
-  std::unordered_map<uint16_t, Ptr<HomaOutboundMsg>> m_outboundMsgs; //!< state to keep HomaOutboundMsg with the key as txMsgId
+  // std::unordered_map<uint16_t, Ptr<HomaOutboundMsg>> m_outboundMsgs; //!< state to keep HomaOutboundMsg with the key as txMsgId
 };
     
 /******************************************************************************/
@@ -597,7 +624,7 @@ public:
   static TypeId GetTypeId (void);
 
   HomaInboundMsg (Ptr<Packet> p, Ipv4Header const &ipv4Header, HomaHeader const &homaHeader, 
-                  Ptr<Ipv4Interface> iface, uint32_t mtuBytes, uint16_t rttPackets, bool memIsOptimized);
+                  Ptr<Ipv4Interface> iface, uint32_t mtuBytes, uint32_t rttPackets, bool memIsOptimized);
   ~HomaInboundMsg (void);
   
   /**
@@ -658,12 +685,12 @@ public:
    * \brief Get the highest grantable packet index for this message.
    * \return The highest grantable packet index so far
    */
-  uint16_t GetMaxGrantableIdx (void);
+  uint32_t GetMaxGrantableIdx (void); //t
   /**
    * \brief Get the highest granted packet index for this message.
    * \return The highest granted packet index so far
    */
-  uint16_t GetMaxGrantedIdx (void);
+  uint32_t GetMaxGrantedIdx (void); //t
   
   /**
    * \brief Set m_maxGrantableIdx value as of last time rtx timer expired.
@@ -674,7 +701,7 @@ public:
    * \brief Get m_maxGrantableIdx value as of last time rtx timer expired.
    * \return The highest grantable pkt index as of last time rtx timer expired.
    */
-  uint16_t GetLastRtxGrntIdx (void);
+  uint32_t GetLastRtxGrntIdx (void); //t
   
   /**
    * \return Whether this message has been fully granted
@@ -693,7 +720,7 @@ public:
    * \brief Get the number of rtx timeouts without receiving any new packet
    * \return The number of consecutive retransmission timeouts
    */
-  uint16_t GetNumRtxWithoutProgress (void);
+  uint32_t GetNumRtxWithoutProgress (void); //t
   /**
    * \brief Increments the number of rtx timeouts by 1
    */
@@ -708,7 +735,7 @@ public:
    * \param p The received data packet
    * \param pktOffset The offset of the received packet within the message
    */
-  void ReceiveDataPacket (Ptr<Packet> p, uint16_t pktOffset);
+  void ReceiveDataPacket (Ptr<Packet> p, uint32_t pktOffset); //t
   
   /**
    * \brief Reassembles the message from its packets
@@ -729,9 +756,13 @@ public:
    * \param maxRsndPktOffset The highest packet index to decide RESENDs upto
    * \return The list of RESEND packets
    */
-  std::list<Ptr<Packet>> GenerateResends (uint16_t maxRsndPktOffset);
+  std::list<Ptr<Packet>> GenerateResends (uint32_t maxRsndPktOffset); //t
 
+  //tp variable
+  uint64_t m_last_received_msgsize  {0}; //上次的数据包带下
+  uint64_t m_now_received_msgsize   {0}; //收包的时候++
 private:
+
   Ipv4Header m_ipv4Header;    //!< The IPv4 Header of the first packet arrived for this message
   Ptr<Ipv4Interface> m_iface; //!< The interface from which the message first came in from
   
@@ -747,14 +778,18 @@ private:
    
   uint32_t m_remainingBytes; //!< Remaining number of bytes that are not received yet
   uint32_t m_msgSizeBytes;   //!< Number of bytes this message occupies
-  uint16_t m_msgSizePkts;    //!< Number packets this message occupies
-  uint16_t m_maxGrantableIdx;//!< Highest Grant Offset determined so far (default: m_rttPackets)
-  uint16_t m_maxGrantedIdx;  //!< Highest Grant Offset sent so far
+
+  uint32_t m_msgSizePkts;    //!< Number packets this message occupies //t
+  uint32_t m_maxGrantableIdx;//!< Highest Grant Offset determined so far (default: m_rttPackets)
+  uint32_t m_maxGrantedIdx;  //!< Highest Grant Offset sent so far
+
   uint8_t m_prio;            //!< The most recent granted priority set for this message
   
   EventId m_rtxEvent;        //!< The EventID for the retransmission timeout
-  uint16_t m_lastRtxGrntIdx; //!< The m_maxGrantableIdx value as of last time rtx timer expired
-  uint16_t m_numRtxWithoutProgress;   //!< The number of rtx timeouts without receiving any new packet
+
+  uint32_t m_lastRtxGrntIdx; //!< The m_maxGrantableIdx value as of last time rtx timer expired //t
+  uint32_t m_numRtxWithoutProgress;   //!< The number of rtx timeouts without receiving any new packet
+
 };
     
 /******************************************************************************/
@@ -780,7 +815,7 @@ public:
 
   HomaRecvScheduler (Ptr<HomaL4Protocol> homaL4Protocol);
   ~HomaRecvScheduler (void);
-  
+  void cal_tp(uint64_t now, uint64_t last_time);
   /**
    * \brief Notify this HomaRecvScheduler upon arrival of a packet
    * \param packet The received packet (without any headers)
@@ -847,12 +882,12 @@ public:
    * \param inboundMsg The inbound message whose retransmission timer expires
    * \param maxRsndPktOffset The highest packet index to send RESEND for 
    */
-  void ExpireRtxTimeout(Ptr<HomaInboundMsg> inboundMsg, uint16_t maxRsndPktOffset);
+  void ExpireRtxTimeout(Ptr<HomaInboundMsg> inboundMsg, uint32_t maxRsndPktOffset); //t
   
 private:
   Ptr<HomaL4Protocol> m_homa; //!< the protocol instance itself that sends/receives messages
   
-  std::vector<Ptr<HomaInboundMsg>> m_inboundMsgs; //!< Sorted vector of inbound messages that are to be scheduled
+  std::vector<Ptr<HomaInboundMsg>> m_inboundMsgs; //!< Sorted vector of inbound messages that are to be scheduled #排序，怎么排序的
   std::unordered_set<uint32_t>  m_busySenders; //!< Set of senders from whom the last received pkt type is BUSY
 };
     

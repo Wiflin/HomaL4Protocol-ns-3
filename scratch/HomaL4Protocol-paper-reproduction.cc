@@ -42,8 +42,20 @@
 #include "ns3/point-to-point-module.h"
 #include "ns3/ipv4-global-routing-helper.h"
 #include "ns3/traffic-control-module.h"
+#include "ns3/msg-generator-app.h"
 
 using namespace ns3;
+
+uint64_t all_msg_id = 0;
+uint64_t all_pkt_count = 0; 
+uint64_t all_pkt_size_count = 0;
+
+uint64_t pkt_count = 0;
+uint64_t pkt_size_count = 0;
+// uint64_t last_throughput = 0;
+uint64_t last_time = 0;
+
+float throughput = 0;
 
 NS_LOG_COMPONENT_DEFINE ("HomaL4ProtocolPaperReproduction");
 
@@ -61,6 +73,29 @@ void TraceMsgBegin (Ptr<OutputStreamWrapper> stream,
       << " " << msg->GetSize()
       << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
       << " " << txMsgId << std::endl;
+
+  all_msg_id++; 
+  // uint64_t now = Simulator::Now ().GetNanoSeconds ();
+  // uint64_t tp_interval = now-last_time;
+
+  // if ( tp_interval != 0)
+  //   throughput = pkt_size_count*8/tp_interval; //Gbps
+  // else
+  //   throughput = 0;
+
+  // last_time = now;
+  // pkt_size_count = 0;
+  // pkt_count = 0;
+
+  // std::cout << "TP start " << Simulator::Now ().GetNanoSeconds () 
+  //      << " all_pkt_count " << all_pkt_count
+  //      << " all_pkt_size_count " << all_pkt_size_count
+  //      << " TP " << throughput
+  //      << " MsgId " << all_msg_id
+  //      << std::endl;
+
+  //       pkt_size_count += msg->GetSize();
+  // pkt_count++;
 }
 
 void TraceMsgFinish (Ptr<OutputStreamWrapper> stream,
@@ -77,6 +112,7 @@ void TraceMsgFinish (Ptr<OutputStreamWrapper> stream,
       << " " << msg->GetSize()
       << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
       << " " << txMsgId << std::endl;
+
 }
 
 static void
@@ -96,13 +132,19 @@ void TraceDataPktArrival (Ptr<OutputStreamWrapper> stream,
                           uint16_t sport, uint16_t dport, int txMsgId,
                           uint16_t pktOffset, uint8_t prio)
 {
-  NS_LOG_DEBUG("- " << Simulator::Now ().GetNanoSeconds () 
-      << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
-      << " " << txMsgId << " " << pktOffset << " " << (uint16_t)prio);
+  // NS_LOG_DEBUG("- " << Simulator::Now ().GetNanoSeconds () 
+  //     << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
+  //     << " " << txMsgId << " " << pktOffset << " " << (uint16_t)prio);
     
-  *stream->GetStream () << "- "  <<Simulator::Now ().GetNanoSeconds () 
-      << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
-      << " " << txMsgId << " " << pktOffset << " " << (uint16_t)prio << std::endl;
+  // *stream->GetStream () << "- "  <<Simulator::Now ().GetNanoSeconds () 
+  //     << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
+  //     << " " << txMsgId << " " << pktOffset << " " << (uint16_t)prio << std::endl;
+
+  all_pkt_size_count += msg->GetSize(); // B
+  all_pkt_count++;
+
+  pkt_size_count += msg->GetSize();
+  pkt_count++;
 }
 void TraceDataPktDeparture (Ptr<OutputStreamWrapper> stream,
                             Ptr<const Packet> msg, Ipv4Address saddr, Ipv4Address daddr, 
@@ -132,6 +174,43 @@ void TraceCtrlPktArrival (Ptr<OutputStreamWrapper> stream,
       << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
       << " " << HomaHeader::FlagsToString(flag) << " " << grantOffset 
       << " " << (uint16_t)prio << std::endl;
+}
+
+void cal_fct(Ptr<OutputStreamWrapper> stream,
+             Ptr<const Packet> msg, Ipv4Address saddr, Ipv4Address daddr, 
+             uint16_t sport, uint16_t dport,
+             Time MsgStartTime, uint16_t MsgSize)
+{
+  uint64_t now = Simulator::Now ().GetNanoSeconds ();
+  uint64_t msg_start_time = MsgStartTime.GetNanoSeconds();
+  uint64_t fct = now - msg_start_time;
+
+  // sip, dip, sport, dport, size (B), start_time, fct (ns), standalone_fct (ns)
+  std::cout << "fct "  <<Simulator::Now ().GetNanoSeconds () 
+            << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
+            << " " << MsgSize << " " << msg_start_time << " " << fct << std::endl;
+}
+
+void cal_throughput (uint64_t schedule_tp_time)
+{
+  uint64_t now = Simulator::Now ().GetNanoSeconds ();
+  uint64_t tp_interval = now-last_time;
+
+  if ( tp_interval != 0)
+    throughput = pkt_size_count*8/tp_interval; //Gbps
+  else
+    throughput = 0;
+
+  last_time = now;
+  pkt_size_count = 0;
+  pkt_count = 0;
+
+  std::cout << "TP start " << Simulator::Now ().GetNanoSeconds () 
+       << " all_pkt_count " << all_pkt_count
+       << " all_pkt_size_count " << all_pkt_size_count
+       << " TP " << throughput
+       << " MsgId " << all_msg_id
+       << std::endl;
 }
 
 std::map<double,int> ReadMsgSizeDist (std::string msgSizeDistFileName, double &avgMsgSizePkts)
@@ -168,7 +247,8 @@ int
 main (int argc, char *argv[])
 {
   AsciiTraceHelper asciiTraceHelper;
-  double duration = 0.01;
+  double start_time = 3; // in seconds
+  double duration = 0.05; // in seconds
   double networkLoad = 0.5;
   uint32_t simIdx = 0;
   bool traceQueues = false;
@@ -177,6 +257,7 @@ main (int argc, char *argv[])
   uint32_t initialCredit = 7; // in packets
   uint64_t inboundRtxTimeout = 1000; // in microseconds
   uint64_t outboundRtxTimeout = 10000; // in microseconds
+  uint64_t tp_interval = 5000; //in nanoseconds
     
   CommandLine cmd (__FILE__);
   cmd.AddValue ("duration", "The duration of the simulation in seconds.", duration);
@@ -188,6 +269,7 @@ main (int argc, char *argv[])
   cmd.AddValue ("bdpPkts", "RttBytes to use in the simulation.", initialCredit);
   cmd.AddValue ("inboundRtxTimeout", "Number of microseconds before an inbound msg expires.", inboundRtxTimeout);
   cmd.AddValue ("outboundRtxTimeout", "Number of microseconds before an outbound msg expires.", outboundRtxTimeout);
+  cmd.AddValue ("tp_interval", "Time interval for calculating throughput rate.", tp_interval);
   cmd.Parse (argc, argv);
     
   if (debugMode)
@@ -199,13 +281,19 @@ main (int argc, char *argv[])
     SeedManager::SetRun (simIdx);
     
   Time::SetResolution (Time::NS);
-//   Packet::EnablePrinting ();
+  Packet::EnablePrinting ();
   LogComponentEnable ("HomaL4ProtocolPaperReproduction", LOG_LEVEL_DEBUG);  
-  LogComponentEnable ("MsgGeneratorApp", LOG_LEVEL_WARN);  
+  // LogComponentEnable ("MsgGeneratorApp", LOG_LEVEL_WARN);  
   LogComponentEnable ("HomaSocket", LOG_LEVEL_WARN);
   LogComponentEnable ("HomaL4Protocol", LOG_LEVEL_WARN);
+
+  // LogComponentEnable ("HomaL4ProtocolPaperReproduction", LOG_LEVEL_DEBUG);  
+  // LogComponentEnable ("MsgGeneratorApp", LOG_LEVEL_FUNCTION);  
+  // LogComponentEnable ("HomaSocket", LOG_LEVEL_FUNCTION);
+  // LogComponentEnable ("HomaL4Protocol", LOG_LEVEL_FUNCTION);
     
   std::string msgSizeDistFileName ("inputs/homa-paper-reproduction/DCTCP-MsgSizeDist.txt");
+  // std::string msgSizeDistFileName ("inputs/homa-paper-reproduction/test-MsgSizeDist.txt");
   std::string tracesFileName ("outputs/homa-paper-reproduction/MsgTraces");
   tracesFileName += "_W5";
   tracesFileName += "_load-" + std::to_string((int)(networkLoad*100)) + "p";
@@ -216,6 +304,7 @@ main (int argc, char *argv[])
     
   std::string qStreamName = tracesFileName + ".qlen";
   std::string msgTracesFileName = tracesFileName + ".tr";
+  std::string FctTracesFileName = tracesFileName + "_fct.txt";
     
   int nHosts = 144;
   int nTors = 9;
@@ -370,16 +459,39 @@ main (int argc, char *argv[])
                      UintegerValue(payloadSize));
     
   for (int i = 0; i < nHosts; i++)
+  // for (int i = 0; i < 1; i++)
   {
     Ptr<MsgGeneratorApp> app = CreateObject<MsgGeneratorApp>(hostTorIfs[i].GetAddress (0),
                                                              1000 + i);
     app->Install (hostNodes.Get (i), clientAddresses);
     app->SetWorkload (networkLoad, msgSizeCDF, avgMsgSizePkts);
-      
-    app->Start(Seconds (3.0));
-    app->Stop(Seconds (3.0 + duration));
+    
+    app->Start(Seconds (start_time));
+    app->Stop(Seconds (start_time + duration));
   }
-      
+  
+  // {
+  //   int i = 0;
+  //   Ptr<MsgGeneratorApp> app = CreateObject<MsgGeneratorApp>(hostTorIfs[i].GetAddress (0),
+  //                                                            1000 + i);
+  //   app->Install (hostNodes.Get (i), clientAddresses);
+  //   app->SetWorkload (networkLoad, msgSizeCDF, avgMsgSizePkts);
+    
+  //   app->Start(Seconds (3.0));
+  //   app->Stop(Seconds (3.0 + duration));
+  // }
+
+  // {
+  //   int i = 143;
+  //   Ptr<MsgGeneratorApp> app = CreateObject<MsgGeneratorApp>(hostTorIfs[i].GetAddress (0),
+  //                                                            1000 + i);
+  //   app->Install (hostNodes.Get (i), clientAddresses);
+  //   app->SetWorkload (networkLoad, msgSizeCDF, avgMsgSizePkts);
+    
+  //   app->Start(Seconds (1.0));
+  //   app->Stop(Seconds (5.0 + duration));
+  // }
+
   /* Set the message traces for the Homa clients*/
   Ptr<OutputStreamWrapper> msgStream;
   msgStream = asciiTraceHelper.CreateFileStream (msgTracesFileName);
@@ -387,6 +499,25 @@ main (int argc, char *argv[])
                                 MakeBoundCallback(&TraceMsgBegin, msgStream));
   Config::ConnectWithoutContext("/NodeList/*/$ns3::HomaL4Protocol/MsgFinish", 
                                 MakeBoundCallback(&TraceMsgFinish, msgStream));
+  
+
+  Ptr<OutputStreamWrapper> FctStream;
+  FctStream = asciiTraceHelper.CreateFileStream (FctTracesFileName);
+  Config::ConnectWithoutContext("/NodeList/*/$ns3::HomaL4Protocol/MsgComplete", 
+                                MakeBoundCallback(&cal_fct, FctStream));
+
+
+
+  // 计算吞吐
+  Config::ConnectWithoutContext("/NodeList/*/$ns3::HomaL4Protocol/DataPktArrival", 
+                                MakeBoundCallback(&TraceDataPktArrival,msgStream));
+
+  for(double i=0; (i*tp_interval)<duration*1e9; i++)
+  {
+    uint64_t schedule_tp_time = start_time*1e9+i*tp_interval;
+    Simulator::Schedule(NanoSeconds(schedule_tp_time), &cal_throughput, schedule_tp_time);
+  }
+
   
   if (debugMode)
   {

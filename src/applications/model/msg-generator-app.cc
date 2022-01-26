@@ -32,6 +32,8 @@
 #include "ns3/homa-socket-factory.h"
 #include "ns3/point-to-point-net-device.h"
 
+using namespace std;
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("MsgGeneratorApp");
@@ -100,6 +102,7 @@ void MsgGeneratorApp::Install (Ptr<Node> node,
         remoteClients[i].GetPort() != m_localPort)
     {
       m_remoteClients.push_back(remoteClients[i]);
+      // NS_LOG_UNCOND( " i " << i << " m_remoteClients[i].GetIpv4() " << m_remoteClients[i].GetIpv4() << " m_remoteClients[i].GetPort() " << m_remoteClients[i].GetPort() );
     }
     else
     {
@@ -110,7 +113,8 @@ void MsgGeneratorApp::Install (Ptr<Node> node,
                    " from remote clients because it is the local address.");
     }
   }
-    
+  // NS_LOG_UNCOND ( Simulator::Now ().GetNanoSeconds () << "  m_localPort " << m_localPort << " m_remoteClients[0] " << m_remoteClients[0]);
+
   m_remoteClient = CreateObject<UniformRandomVariable> ();
   m_remoteClient->SetAttribute ("Min", DoubleValue (0));
   m_remoteClient->SetAttribute ("Max", DoubleValue (m_remoteClients.size()));
@@ -201,9 +205,12 @@ void MsgGeneratorApp::ScheduleNextMessage ()
   {
     m_nextSendEvent = Simulator::Schedule (Seconds (m_interMsgTime->GetValue ()),
                                            &MsgGeneratorApp::SendMessage, this);
+    // NS_LOG_UNCOND ( Simulator::Now ().GetNanoSeconds () << " m_localPort " << m_localPort << 
+      // " m_interMsgTime "<<  Seconds (m_interMsgTime->GetValue ()) << " m_nextSendEvent ");
   }
   else
   {
+    // NS_LOG_UNCOND ( Simulator::Now ().GetNanoSeconds () << " " );
     NS_LOG_WARN("MsgGeneratorApp (" << this <<
                 ") tries to schedule the next msg before the previous one is sent!");
   }
@@ -227,7 +234,11 @@ uint32_t MsgGeneratorApp::GetNextMsgSizeFromDist ()
   NS_ASSERT(msgSizePkts >= 0);
   // Homa header can't handle msgs larger than 0xffff pkts
   msgSizePkts = std::min(0xffff, msgSizePkts);
-    
+  
+  // if (m_localPort == 1000)
+  //   msgSizePkts = 1;
+
+  // NS_LOG_UNCOND ( Simulator::Now ().GetNanoSeconds () << "  m_localPort " << m_localPort << "  msgSizePkts " << msgSizePkts);
   if (m_maxPayloadSize > 0)
     return m_maxPayloadSize * (uint32_t)msgSizePkts;
   else
@@ -244,12 +255,21 @@ void MsgGeneratorApp::SendMessage ()
     
   /* Decide which remote client to send to */
   double rndValue = m_remoteClient->GetValue ();
+
+  // double rndValue = 0;
+  // NS_LOG_UNCOND ( Simulator::Now ().GetNanoSeconds () << "  m_localPort " << m_localPort);
   int remoteClientIdx = (int) std::floor(rndValue);
+
+  // if ( m_localPort == 1143)
+  //   remoteClientIdx = 0;
+
   InetSocketAddress receiverAddr = m_remoteClients[remoteClientIdx];
-  
+
   /* Decide on the message size to send */
   uint32_t msgSizeBytes = GetNextMsgSizeFromDist (); 
   
+  // NS_LOG_UNCOND ( Simulator::Now ().GetNanoSeconds () << "  m_localPort " << m_localPort << "  msgSizeBytes " << msgSizeBytes);
+
   /* Create the message to send */
   Ptr<Packet> msg = Create<Packet> (msgSizeBytes);
   NS_LOG_LOGIC ("MsgGeneratorApp {" << this << ") generates a message of size: "
@@ -260,6 +280,8 @@ void MsgGeneratorApp::SendMessage ()
   if (sentBytes > 0)
   {
     NS_LOG_INFO(sentBytes << " Bytes sent to " << receiverAddr);
+    // std::cout << Simulator::Now ().GetNanoSeconds () << "  m_localPort " << m_localPort << " " << 
+    //              sentBytes << " Bytes sent to " << receiverAddr << std::endl;
     m_totMsgCnt++;
   }
     
@@ -281,6 +303,10 @@ void MsgGeneratorApp::ReceiveMessage (Ptr<Socket> socket)
                  " client received " << message->GetSize () << " bytes from " <<
                  InetSocketAddress::ConvertFrom (from).GetIpv4 () << ":" <<
                  InetSocketAddress::ConvertFrom (from).GetPort ());
+    // std::cout << Simulator::Now ().GetNanoSeconds () << "  m_localPort " << m_localPort << 
+    //              " client received " << message->GetSize () << " bytes from " <<
+    //              InetSocketAddress::ConvertFrom (from).GetIpv4 () << ":" <<
+    //              InetSocketAddress::ConvertFrom (from).GetPort () << std::endl;
   }
 }
     

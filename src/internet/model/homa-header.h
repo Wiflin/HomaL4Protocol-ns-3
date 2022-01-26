@@ -131,20 +131,20 @@ public:
   /**
    * \param pktOffset The packet identifier for this HomaHeader in number of packets 
    */
-  void SetPktOffset (uint16_t pktOffset);
+  void SetPktOffset (uint32_t pktOffset); //t
   /**
    * \return The packet identifier for this HomaHeader in number of packets 
    */
-  uint16_t GetPktOffset (void) const;
+  uint32_t GetPktOffset (void) const; //t
   
   /**
    * \param grantOffset The grant identifier for this HomaHeader in number of packets 
    */
-  void SetGrantOffset (uint16_t grantOffset);
+  void SetGrantOffset (uint32_t grantOffset);  //t
   /**
    * \return The grant identifier for this HomaHeader in number of packets 
    */
-  uint16_t GetGrantOffset (void) const;
+  uint32_t GetGrantOffset (void) const;  //t
   
   /**
    * \param payloadSize The payload size for this HomaHeader in bytes
@@ -201,8 +201,10 @@ private:
 //   Use grantOffset for the initial window size
 //   uint16_t m_incoming;    //!< Initial window size (in packets)
   uint32_t m_msgSizeBytes;//!< Size of the message in bytes
-  uint16_t m_pktOffset;   //!< Similar to seq number (in packets)
-  uint16_t m_grantOffset; //!< Similar to ack number (in packets)
+
+  uint32_t m_pktOffset;   //!< Similar to seq number (in packets)
+  uint32_t m_grantOffset; //!< Similar to ack number (in packets) //t
+
   uint16_t m_payloadSize; //!< Payload size
   uint16_t m_generation;  //!< The generation of the RPC
   

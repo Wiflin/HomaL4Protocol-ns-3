@@ -31,6 +31,9 @@
 #include "ns3/socket.h"
 #include "pfifo-homa-queue-disc.h"
 
+#include "ns3/core-module.h"
+#include "ns3/homa-header.h"
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("PfifoHomaQueueDisc");
@@ -83,17 +86,33 @@ PfifoHomaQueueDisc::DoEnqueue (Ptr<QueueDiscItem> item)
     }
 
   uint8_t priority = 0;
+  uint8_t band = 0;
   SocketIpTosTag priorityTag;
-  if (item->GetPacket ()->PeekPacketTag (priorityTag))
-    {
-//       NS_LOG_DEBUG("Found priority tag on the packet: " << 
-//                    (uint32_t)priorityTag.GetTos ());
-      priority = priorityTag.GetTos ();
-    }
 
-  uint32_t band = (uint32_t)priority;
+  Ptr<Packet> cp = item->GetPacket ()->Copy ();
+  HomaHeader homaHeader;
+  cp->PeekHeader(homaHeader);
+  priority = homaHeader.GetPrio();
+  uint8_t ctrlFlag = homaHeader.GetFlags();
+  if ( ctrlFlag & HomaHeader::Flags_t::DATA )
+    band = priority;
+  // NS_LOG_UNCOND ( " band " << (uint8_t)band << " m_numBands " << (uint8_t)m_numBands 
+  //               << " priorityTag.GetInstanceTypeId () " << priorityTag.GetInstanceTypeId ()
+  //               );
   if (band > m_numBands)
       band = m_numBands;
+
+  // if (item->GetPacket ()->PeekPacketTag (priorityTag))
+  // {
+  //   // NS_LOG_DEBUG("Found priority tag on the packet: " << 
+  //   //              (uint32_t)priorityTag.GetTos ());
+  //   NS_LOG_UNCOND ("Found priority tag on the packet: " << (uint32_t)priorityTag.GetTos ()
+  //                  << " ");
+  //   priority = priorityTag.GetTos ();
+  // }
+  // uint32_t band = (uint32_t)priority;
+  // if (band > m_numBands)
+  //     band = m_numBands;
 
   bool retval = GetInternalQueue (band)->Enqueue (item);
 
@@ -104,8 +123,14 @@ PfifoHomaQueueDisc::DoEnqueue (Ptr<QueueDiscItem> item)
     {
       NS_LOG_WARN ("Packet enqueue failed. Check the size of the internal queues");
     }
-
+  NS_LOG_LOGIC ("Enqueue band " << band << ": " << item);
   NS_LOG_LOGIC ("Number packets band " << band << ": " << GetInternalQueue (band)->GetNPackets ());
+
+  // if ( band!=0 ){
+  //   NS_LOG_UNCOND ("PfifoHomaQueueDisc::DoEnqueue Enqueue band " << band << ": " << item);
+  //   NS_LOG_UNCOND ("Number packets band " << band << ": " << GetInternalQueue (band)->GetNPackets ());
+  // }
+  
 
   return retval;
 }
@@ -123,6 +148,16 @@ PfifoHomaQueueDisc::DoDequeue (void)
         {
           NS_LOG_LOGIC ("Popped from band " << i << ": " << item);
           NS_LOG_LOGIC ("Number packets band " << i << ": " << GetInternalQueue (i)->GetNPackets ());
+
+          Ptr<Packet> cp = item->GetPacket ()->Copy ();
+          HomaHeader homaHeader;
+          cp->PeekHeader(homaHeader);
+          // NS_LOG_UNCOND (Simulator::Now ().GetNanoSeconds ()
+          //                << " Popped from band " << i << ": " << homaHeader.GetSrcPort ());
+          // NS_LOG_UNCOND ("Number packets band " << 0 << ": " << GetInternalQueue (0)->GetNPackets ());
+          // NS_LOG_UNCOND ("Number packets band " << 1 << ": " << GetInternalQueue (1)->GetNPackets ());
+          // NS_LOG_UNCOND ("Number packets band " << 2 << ": " << GetInternalQueue (2)->GetNPackets ());
+          // NS_LOG_UNCOND ("Number packets band " << 3 << ": " << GetInternalQueue (3)->GetNPackets ());
           return item;
         }
     }
