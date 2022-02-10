@@ -139,7 +139,7 @@ HomaL4Protocol::HomaL4Protocol ()
       
   m_sendScheduler = CreateObject<HomaSendScheduler> (this);
   m_recvScheduler = CreateObject<HomaRecvScheduler> (this); 
-  m_tp_event = Simulator::Schedule(Seconds(2)+MicroSeconds(2), &HomaL4Protocol::cal_throughput_event, this);
+  // m_tp_event = Simulator::Schedule(Seconds(2)+MicroSeconds(2), &HomaL4Protocol::cal_throughput_event, this);
 }
 
 HomaL4Protocol::~HomaL4Protocol ()
