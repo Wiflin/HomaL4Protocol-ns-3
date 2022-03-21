@@ -462,14 +462,15 @@ main (int argc, char *argv[])
   bool debugMode = false;
   // uint32_t initialCredit = 7; // in packets MTU=1500  BW=100Gbps:RTT=4us = BDP=50KB:Credit=34
   // uint32_t initialCredit = 34; // 配置
-  uint32_t initialCredit = 48;
+  // uint32_t initialCredit = 48;
+  uint32_t initialCredit = 96; // bdp = 100KB = 100Gbps*8us
 
   uint64_t inboundRtxTimeout = 1000000; // in microseconds ori:1000
   uint64_t outboundRtxTimeout = 1000000; // in microseconds  ori:10000
   uint64_t tp_interval = 2000; //in nanoseconds 配置
   uint64_t qlen_interval = 2000; // nanoseconds
   uint64_t active_interval = 2000;
-  uint8_t m_OvercommitLevel = 4; //配置
+  uint8_t m_OvercommitLevel = 6; //配置
   std::string flow_file = "";
   std::string m_traceFileName = "logs/log";
   // std::string m_flow_file = "load_files/tencent-cbs-CBS-2-load-1.txt";
@@ -530,12 +531,12 @@ main (int argc, char *argv[])
   std::string ThputTracesFileName = tracesFileName + "_tp-detail.txt";
   std::string activeStreamName = tracesFileName + "_active.txt";
 
-  // int nHosts = 144;
-  // int nTors = 9;
-  // int nSpines = 4;
-  int nHosts = 160;  //Highest_Queue_Length 用到nHost的数值
-  int nTors = 1;
-  int nSpines = 1;
+  int nHosts = 160;
+  int nTors = 10;
+  int nSpines = 4;
+  // int nHosts = 160;  //Highest_Queue_Length 用到nHost的数值
+  // int nTors = 1;
+  // int nSpines = 1;
   
   /******** Create Nodes ********/
   NS_LOG_UNCOND("Creating Nodes...");
