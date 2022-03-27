@@ -89,6 +89,8 @@ uint32_t flow_num;
 
 std::ifstream flowf;
 
+Ptr<OutputStreamWrapper> throughput_summary;
+
 void ReadFlowInput(){ //用flow_input这个全局结构来存储流
   if (flow_input.idx < flow_num){
     flowf >> flow_input.src >> flow_input.dst >> flow_input.pg >> flow_input.port >> flow_input.MsgSize >> flow_input.start_time;
@@ -266,10 +268,10 @@ void TraceCtrlPktArrival (Ptr<OutputStreamWrapper> stream,
   RxDataArrivalRecord[daddr] += pkt_size;
 }
 
-
 void CalculateThroughputByRx (Ptr<OutputStreamWrapper> stream, uint32_t tp_interval)
 {
   uint64_t now = Simulator::Now ().GetNanoSeconds ();
+  float throughput_sum = 0;
 
   *stream->GetStream () << now ;
 
@@ -279,11 +281,14 @@ void CalculateThroughputByRx (Ptr<OutputStreamWrapper> stream, uint32_t tp_inter
     }
     else {      
       float throughput = RxDataArrivalRecord[it]*8*1000/tp_interval; //Mbps
+      throughput_sum += throughput;
       *stream->GetStream () << '\t' << throughput;
     }
   }
 
   *stream->GetStream () <<  "\n";
+
+  *throughput_summary->GetStream () << now << "\t" << (int)throughput_sum << std::endl;
 
   // for (auto it = RxDataArrivalRecord.begin(); it != RxDataArrivalRecord.end(); it++) {
   //   *stream->GetStream () << '\t' << it->first << '\t' << it->second;
@@ -543,6 +548,7 @@ main (int argc, char *argv[])
   std::string msgTracesFileName = tracesFileName + ".tr";
   std::string FctTracesFileName = tracesFileName + "_fct.txt";
   std::string ThputTracesFileName = tracesFileName + "_tp-detail.txt";
+  std::string ThputSummaryTracesFileName = tracesFileName + "_tp-summary.txt";
   std::string activeStreamName = tracesFileName + "_active.txt";
 
   // int nHosts = 160;
@@ -808,6 +814,7 @@ main (int argc, char *argv[])
 
 
   // 计算吞吐
+  throughput_summary = asciiTraceHelper.CreateFileStream (ThputSummaryTracesFileName);
   Config::ConnectWithoutContext("/NodeList/*/$ns3::HomaL4Protocol/DataPktArrival", 
                                 MakeBoundCallback(&TraceDataPktArrival,msgStream));
 
