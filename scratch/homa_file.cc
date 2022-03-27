@@ -545,12 +545,12 @@ main (int argc, char *argv[])
   std::string ThputTracesFileName = tracesFileName + "_tp-detail.txt";
   std::string activeStreamName = tracesFileName + "_active.txt";
 
-  int nHosts = 160;
-  int nTors = 10;
-  int nSpines = 4;
-  // int nHosts = 160;  //Highest_Queue_Length 用到nHost的数值
-  // int nTors = 1;
-  // int nSpines = 1;
+  // int nHosts = 160;
+  // int nTors = 10;
+  // int nSpines = 4;
+  int nHosts = 160;  //Highest_Queue_Length 用到nHost的数值
+  int nTors = 1;
+  int nSpines = 1;
   
   /******** Create Nodes ********/
   NS_LOG_UNCOND("Creating Nodes...");
