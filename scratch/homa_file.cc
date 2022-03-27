@@ -254,6 +254,18 @@ void TraceDataPktArrival (Ptr<OutputStreamWrapper> stream,
 
 }
 
+void TraceCtrlPktArrival (Ptr<OutputStreamWrapper> stream,
+                          Ptr<const Packet> msg, Ipv4Address saddr, Ipv4Address daddr, 
+                          uint16_t sport, uint16_t dport, uint8_t flag,
+                          uint16_t grantOffset, uint8_t prio)
+{
+  if (RxDataArrivalRecord.find(daddr) == RxDataArrivalRecord.end())
+    RxDataArrivalRecord[daddr] = 0;
+    
+  uint32_t pkt_size = msg->GetSize() + m_header_size; // B
+  RxDataArrivalRecord[daddr] += pkt_size;
+}
+
 
 void CalculateThroughputByRx (Ptr<OutputStreamWrapper> stream, uint32_t tp_interval)
 {
@@ -323,21 +335,21 @@ void TraceDataPktDeparture (Ptr<OutputStreamWrapper> stream,
       << " " << txMsgId << " " << pktOffset << " " << std::endl;
 //       << " " << txMsgId << " " << pktOffset << " " << (uint16_t)prio << std::endl;
 }
-void TraceCtrlPktArrival (Ptr<OutputStreamWrapper> stream,
-                          Ptr<const Packet> msg, Ipv4Address saddr, Ipv4Address daddr, 
-                          uint16_t sport, uint16_t dport, uint8_t flag,
-                          uint16_t grantOffset, uint8_t prio)
-{
-  NS_LOG_DEBUG("- " << Simulator::Now ().GetNanoSeconds () 
-      << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
-      << " " << HomaHeader::FlagsToString(flag) << " " << grantOffset 
-      << " " << (uint16_t)prio);
-    
-  *stream->GetStream () << "- "  <<Simulator::Now ().GetNanoSeconds () 
-      << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
-      << " " << HomaHeader::FlagsToString(flag) << " " << grantOffset 
-      << " " << (uint16_t)prio << std::endl;
-}
+// void TraceCtrlPktArrival (Ptr<OutputStreamWrapper> stream,
+//                           Ptr<const Packet> msg, Ipv4Address saddr, Ipv4Address daddr, 
+//                           uint16_t sport, uint16_t dport, uint8_t flag,
+//                           uint16_t grantOffset, uint8_t prio)
+// {
+//   NS_LOG_DEBUG("- " << Simulator::Now ().GetNanoSeconds () 
+//       << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
+//       << " " << HomaHeader::FlagsToString(flag) << " " << grantOffset 
+//       << " " << (uint16_t)prio);
+//    
+//   *stream->GetStream () << "- "  <<Simulator::Now ().GetNanoSeconds () 
+//       << " " << saddr << ":" << sport << " "  << daddr << ":" << dport 
+//       << " " << HomaHeader::FlagsToString(flag) << " " << grantOffset 
+//       << " " << (uint16_t)prio << std::endl;
+// }
 
 void cal_fct(Ptr<OutputStreamWrapper> stream,
              Ptr<const Packet> msg, Ipv4Address saddr, Ipv4Address daddr, 
@@ -796,6 +808,9 @@ main (int argc, char *argv[])
   // 计算吞吐
   Config::ConnectWithoutContext("/NodeList/*/$ns3::HomaL4Protocol/DataPktArrival", 
                                 MakeBoundCallback(&TraceDataPktArrival,msgStream));
+
+  // Config::ConnectWithoutContext("/NodeList/*/$ns3::HomaL4Protocol/CtrlPktArrival", 
+  //                               MakeBoundCallback(&TraceCtrlPktArrival,msgStream));
 
 
   // Simulator::Schedule(NanoSeconds(start_time), &cal_throughput, 0);
