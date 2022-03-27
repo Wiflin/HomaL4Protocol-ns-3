@@ -483,6 +483,7 @@ main (int argc, char *argv[])
   uint64_t qlen_interval = 2000; // nanoseconds
   uint64_t active_interval = 2000;
   uint8_t m_OvercommitLevel = 6; //配置
+  uint8_t numTotalPrioBands = 8;
   std::string flow_file = "";
   std::string m_traceFileName = "logs/log";
   // std::string m_flow_file = "load_files/tencent-cbs-CBS-2-load-1.txt";
@@ -501,6 +502,7 @@ main (int argc, char *argv[])
   cmd.AddValue ("outboundRtxTimeout", "Number of microseconds before an outbound msg expires.", outboundRtxTimeout);
   cmd.AddValue ("tp_interval", "Time interval for calculating throughput rate.", tp_interval);
   cmd.AddValue ("overcommitlevel", "Minimum number of messages to Grant at the same time.", m_OvercommitLevel);
+  cmd.AddValue ("totalPrioBands", "Minimum number of messages to Grant at the same time.", numTotalPrioBands);
   cmd.AddValue ("flow_file", "flow_file.", m_flow_file);
   cmd.AddValue ("trace_file", "The file name of trace output.", m_traceFileName);
   cmd.Parse (argc, argv);
@@ -570,7 +572,7 @@ main (int argc, char *argv[])
   hostLinks.SetQueue ("ns3::DropTailQueue", "MaxSize", StringValue ("1p"));
     
   PointToPointHelper aggregationLinks;
-  aggregationLinks.SetDeviceAttribute ("DataRate", StringValue ("100Gbps")); //40
+  aggregationLinks.SetDeviceAttribute ("DataRate", StringValue ("400Gbps")); //40
   aggregationLinks.SetDeviceAttribute ("Mtu", StringValue ("1044")); //t
   aggregationLinks.SetChannelAttribute ("Delay", StringValue ("1000ns")); //250
   aggregationLinks.SetQueue ("ns3::DropTailQueue", "MaxSize", StringValue ("1p"));
@@ -603,7 +605,7 @@ main (int argc, char *argv[])
                      UintegerValue(initialCredit));
     
   /* Set default number of priority bands in the network */
-  uint8_t numTotalPrioBands = 8;
+
   uint8_t numUnschedPrioBands = 2;
   if (disableRtx)
   {
