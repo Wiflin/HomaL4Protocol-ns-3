@@ -480,7 +480,7 @@ main (int argc, char *argv[])
   // uint32_t initialCredit = 7; // in packets MTU=1500  BW=100Gbps:RTT=4us = BDP=50KB:Credit=34
   // uint32_t initialCredit = 34; // 配置
   // uint32_t initialCredit = 48;
-  uint32_t initialCredit = 96; // bdp = 100KB = 100Gbps*8us
+  uint32_t initialCredit = 48; // bdp = 100KB = 100Gbps*8us
 
   uint64_t inboundRtxTimeout = 1000000; // in microseconds ori:1000
   uint64_t outboundRtxTimeout = 1000000; // in microseconds  ori:10000
