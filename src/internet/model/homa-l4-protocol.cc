@@ -453,7 +453,7 @@ HomaL4Protocol::Receive (Ptr<Packet> packet,
 {
   NS_LOG_FUNCTION (this << packet << header << interface);
     
-  NS_LOG_DEBUG ("HomaL4Protocol (" << this << ") received: " << packet->ToString ());
+  // NS_LOG_UNCOND (Simulator::Now().GetNanoSeconds() << " HomaL4Protocol (" << this << ") received: " << packet->ToString ());
     
   NS_ASSERT(header.GetProtocol() == PROT_NUMBER);
   
@@ -1449,7 +1449,8 @@ HomaInboundMsg::HomaInboundMsg (Ptr<Packet> p,
   m_remainingBytes = m_msgSizeBytes - p->GetSize();
   
   // Fill in the packet buffer with place holder (empty) packets and set the received info as false
-  for (uint16_t i = 0; i < m_msgSizePkts; i++)
+  // fix msg limitation of 64K packets
+  for (uint32_t i = 0; i < m_msgSizePkts; i++)
   {
     if (memIsOptimized)
       m_pktSizes.push_back(0);

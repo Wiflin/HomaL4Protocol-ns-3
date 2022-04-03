@@ -121,8 +121,8 @@ void ScheduleFlowInputs(Ipv4InterfaceContainer hostTorIfs[]){
 
   // schedule the next time to run this function
   if (flow_input.idx < flow_num){
-    ScheduleFlowInputs(hostTorIfs);
-    // Simulator::Schedule(Seconds(flow_input.start_time)-Simulator::Now(), ScheduleFlowInputs, hostTorIfs);
+    // ScheduleFlowInputs(hostTorIfs);
+    Simulator::Schedule(Seconds(flow_input.start_time)-Simulator::Now(), ScheduleFlowInputs, hostTorIfs);
   }else { // no more flows, close the file
     flowf.close();
   }
