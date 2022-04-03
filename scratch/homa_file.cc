@@ -88,6 +88,7 @@ FlowInput flow_input = {0};
 uint32_t flow_num;
 
 std::ifstream flowf;
+Ptr<OutputStreamWrapper> throughput_summary;
 
 void ReadFlowInput(){ //用flow_input这个全局结构来存储流
   if (flow_input.idx < flow_num){
@@ -270,6 +271,7 @@ void TraceCtrlPktArrival (Ptr<OutputStreamWrapper> stream,
 void CalculateThroughputByRx (Ptr<OutputStreamWrapper> stream, uint32_t tp_interval)
 {
   uint64_t now = Simulator::Now ().GetNanoSeconds ();
+  float throughput_sum = 0;
 
   *stream->GetStream () << now ;
 
@@ -279,11 +281,13 @@ void CalculateThroughputByRx (Ptr<OutputStreamWrapper> stream, uint32_t tp_inter
     }
     else {      
       float throughput = RxDataArrivalRecord[it]*8*1000/tp_interval; //Mbps
+      throughput_sum += throughput;
       *stream->GetStream () << '\t' << throughput;
     }
   }
 
   *stream->GetStream () <<  "\n";
+  *throughput_summary->GetStream () << now << "\t" << (int)throughput_sum << std::endl;
 
   // for (auto it = RxDataArrivalRecord.begin(); it != RxDataArrivalRecord.end(); it++) {
   //   *stream->GetStream () << '\t' << it->first << '\t' << it->second;
@@ -477,7 +481,7 @@ main (int argc, char *argv[])
   // uint32_t initialCredit = 48;
   uint32_t initialCredit = 96; // bdp = 100KB = 100Gbps*8us
 
-  uint64_t inboundRtxTimeout = 1000000; // in microseconds ori:1000
+  uint64_t inboundRtxTimeout = 1000; // in microseconds ori:1000
   uint64_t outboundRtxTimeout = 1000000; // in microseconds  ori:10000
   uint64_t tp_interval = 2000; //in nanoseconds 配置
   uint64_t qlen_interval = 2000; // nanoseconds
@@ -544,6 +548,7 @@ main (int argc, char *argv[])
   std::string FctTracesFileName = tracesFileName + "_fct.txt";
   std::string ThputTracesFileName = tracesFileName + "_tp-detail.txt";
   std::string activeStreamName = tracesFileName + "_active.txt";
+  std::string ThputSummaryTracesFileName = tracesFileName + "_tp-summary.txt";
 
   int nHosts = 160;
   int nTors = 10;
@@ -646,7 +651,7 @@ main (int argc, char *argv[])
   //       value for rare overflows.
   TrafficControlHelper tchPfifoHoma;
   tchPfifoHoma.SetRootQueueDisc ("ns3::PfifoHomaQueueDisc",
-                                 "MaxSize", StringValue("5000p"), //500 配置
+                                 "MaxSize", StringValue("1636p"), //500 配置
                                  "NumBands", UintegerValue(numTotalPrioBands));
   QueueDiscContainer hostFacingTorQdiscs[nHosts];
   Ptr<OutputStreamWrapper> qStream;
@@ -808,9 +813,9 @@ main (int argc, char *argv[])
 
 
   // 计算吞吐
+  throughput_summary = asciiTraceHelper.CreateFileStream (ThputSummaryTracesFileName);
   Config::ConnectWithoutContext("/NodeList/*/$ns3::HomaL4Protocol/DataPktArrival", 
                                 MakeBoundCallback(&TraceDataPktArrival,msgStream));
-
   // Config::ConnectWithoutContext("/NodeList/*/$ns3::HomaL4Protocol/CtrlPktArrival", 
   //                               MakeBoundCallback(&TraceCtrlPktArrival,msgStream));
 
